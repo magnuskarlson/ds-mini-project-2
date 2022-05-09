@@ -1,3 +1,6 @@
+# The Byzantine General’s problem with Consensus
+# Solution by Magnus Karlson
+
 import sys
 import socket
 from threading import Thread
@@ -5,6 +8,7 @@ import json
 import os
 import random
 import time
+import math
 
 if len(sys.argv) < 2 or int(sys.argv[1]) < 1:
     exit("Number of processes must be atleast 1!")
@@ -17,20 +21,20 @@ total = int(sys.argv[1])
 primaryprocess = None
 processes = []
 
+# finds most frequent result
 def most_freq(orders):
-    attack = 0
-    retreat = 0
+    half = math.floor(len(orders) / 2)
+    result = 'undefined'
+    votes= {
+        'attack': 0,
+        'retreat': 0,
+        'undefined': 0
+    }
     for order in orders:
-        if order == 'attack':
-            attack += 1
-        else:
-            retreat += 1
-    if attack == retreat:
-        return 'undefined'
-    if attack > retreat:
-        return 'attack'
-    return 'retreat'
-    #return max(set(items), key = items.count)
+        votes[order] += 1
+        if votes[order] > half:
+            result = order
+    return result, votes[result]
 
 class Process(Thread):
     def __init__(self, index):
@@ -47,12 +51,7 @@ class Process(Thread):
     def process_order(self, order):
         if self.state == 'NF':
             return order
-
-        # 50 / 50
-        if random.randint(0, 100) < 50:
-            return 'attack'
-        return 'retreat'
-        #return random.choice(['attack', 'retreat'])
+        return random.choice(['attack', 'retreat'])
 
 
     def launch_server(self):
@@ -64,7 +63,7 @@ class Process(Thread):
             params = json.loads(con.recv(1024).decode())
             if params['action'] == 'primary_order':
                 # informing others from given order
-                #self.store_orders(params['order'])
+                self.store_orders(params['order'])
                 for p in processes:
                     # skips self and primary
                     if p.index == self.index or p.index == primaryprocess.index: continue
@@ -83,8 +82,8 @@ class Process(Thread):
     def store_orders(self, order):
         self.all_orders.append(order)
         # every order has been recieved
-        if len(self.all_orders) == len(processes) - 2:
-            most_frequent = most_freq(self.all_orders)
+        if len(self.all_orders) == len(processes) - 1:
+            most_frequent, _ = most_freq(self.all_orders)
             self.order = most_frequent
             self.all_orders = []
     
@@ -109,9 +108,11 @@ class Process(Thread):
         s.close()
         return res
 
-    def __str__(self):
-        primary = 'primary' if self.primary else 'secondary'
-        return f'G{self.index}, {primary}, {self.order}, state={self.state}'
+    def strresult(self, majority=False):
+        items = [f'G{self.index}', 'primary' if self.primary else 'secondary']
+        if majority: items.append(f'majority={self.order}')
+        items.append(f'state={self.state}')
+        return ', '.join(items)
 
 def add_process(i):
     global primaryprocess
@@ -123,7 +124,6 @@ def add_process(i):
     processes.append(p)
 
 for i in range(total):
-    time.sleep(0.05)
     add_process(i)
 
 def find_process(id):
@@ -137,11 +137,11 @@ def find_process(id):
     print("Such process doesn't exist!")
     return None
 
-def show_processes():
+def show_processes(majority=False):
     if len(processes) == 0:
         print('(LIST EMPTY)')
     for p in processes:
-        print(p)
+        print(p.strresult(majority))
 
 while True:
     try:
@@ -160,33 +160,21 @@ while True:
             continue
         primaryprocess.primary_order(p1)
         time.sleep(0.5)
-        show_processes()
-    
-        votes= {
-            'attack': 0,
-            'retreat': 0,
-            'undefined': 0
-        }
-        states = {
-            'F': 0,
-            'NF': 0
-        }
-        # processes[1:] 1: to skip primary process in decision making
-        for p in processes[1:]:
-            votes[p.order] += 1
+        show_processes(True)
 
-        # total faulty nodes
+        # wins order, what has over 50% of votes
+        result, count = most_freq([p.order for p in processes[1:]])
+
+        # faulty node counter
+        faulty = 0
         for p in processes:
-            states[p.state] += 1
-
-        # most frequent answer
-        orders = [p.order for p in processes[1:]]
-        result = max(set(orders), key = orders.count)
+            if p.state == 'F':
+                faulty += 1
 
         if result == 'undefined':
-            print(f'Execute order - cannot be determined - not enough generals in the system! {states["F"]} faulty node in the system! {votes["undefined"]} out of {len(processes)} not consistent')
+            print(f'Execute order - cannot be determined - not enough generals in the system! {faulty} faulty nodes in the system! {count} out of {len(processes)} not consistent')
         else:
-            print(f'Execute order: {result}! {states["F"]} faulty nodes in the system - {votes[result]} out of {len(processes)} suggest {result}')
+            print(f'Execute order: {result}! {faulty} faulty nodes in the system! {count} out of {len(processes)} suggest {result}')
     
     elif cmd == 'g-state':
         if p1 != '':
