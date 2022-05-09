@@ -23,6 +23,9 @@ processes = []
 
 # finds most frequent result
 def most_freq(orders):
+    # not enough for conclusion
+    if len(orders) < 3:
+        return 'undefined', len(orders)
     half = math.floor(len(orders) / 2)
     result = 'undefined'
     votes= {
@@ -57,7 +60,7 @@ class Process(Thread):
     def launch_server(self):
         s = socket.socket()
         s.bind((HOST, PORT + self.index))
-        s.listen(100)
+        s.listen(200)
         while True:
             con, addr = s.accept()
             params = json.loads(con.recv(1024).decode())
